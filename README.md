@@ -1,1 +1,3 @@
-# Embedded-Systems-Bluetooth-Project-
+# Embedded-Systems-Bluetooth-Project
+
+The Big Idea
