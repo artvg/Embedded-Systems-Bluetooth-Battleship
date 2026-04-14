@@ -1,3 +1,3 @@
 # Embedded-Systems-Bluetooth-Project
 
-The Big Idea
+A better and improved version of battleship for Robby
