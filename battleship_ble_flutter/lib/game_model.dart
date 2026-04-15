@@ -12,21 +12,21 @@ enum GamePhase { placement, scanning, battle, over }
 class GameModel extends ChangeNotifier {
   final BleManager ble = BleManager();
 
-  // Flutter's defense grid (Flutter's ships + enemy hits) 
+  // Flutter's defense grid (Flutter's ships + enemy hits)
   late List<List<CellState>> myGrid;
 
-  // Flutter's attack grid (Flutter's shots at M5) 
+  // Flutter's attack grid (Flutter's shots at M5)
   late List<List<CellState>> attackGrid;
 
-  // Ship placement state 
+  // Ship placement state
   int shipsPlaced = 0;
   bool get placementComplete => shipsPlaced >= kShipCount;
 
-  // Game stats 
+  // Game stats
   int myShipsLeft = kTotalShipCells;
   int m5ShipsLeft = kTotalShipCells;
 
-  // Phase / turn 
+  // Phase / turn
   GamePhase phase = GamePhase.placement;
   bool flutterTurn = false; // true = Flutter may fire
   bool iWon = false;
@@ -35,7 +35,7 @@ class GameModel extends ChangeNotifier {
   String statusMsg = 'Deploy your fleet — tap to place ships';
   String detailMsg = '';
 
-  // Last event row/col (for cell highlight animations) 
+  // Last event row/col (for cell highlight animations)
   int? lastEventRow;
   int? lastEventCol;
 
@@ -138,12 +138,12 @@ class GameModel extends ChangeNotifier {
 
   //  BLE Callbacks
   void _onConnected() {
-    phase        = GamePhase.battle;
-    flutterTurn  = false;   // M5 always goes first
-    statusMsg    = '🛡  INCOMING FIRE';
-    detailMsg    = 'M5Stack is aiming — watch your fleet!';
+    phase = GamePhase.battle;
+    flutterTurn = false; // M5 always goes first
+    statusMsg = '🛡 Waiting for M5Stack…';
+    detailMsg = 'M5Stack is aiming — watch your fleet!';
     notifyListeners();
-}
+  }
 
   void _onDisconnected() {
     // Keep placement data but reset game state
@@ -170,14 +170,14 @@ class GameModel extends ChangeNotifier {
       if (myShipsLeft <= 0) {
         phase = GamePhase.over;
         iWon = false;
-        statusMsg = '💥 Your fleet was destroyed!';
+        statusMsg = ' Your fleet was destroyed!';
         detailMsg = 'M5Stack wins this battle';
         notifyListeners();
         return;
       }
-      statusMsg = '💥 Hit! M5Stack struck ${_col(c)}${r + 1}';
+      statusMsg = ' Hit! M5Stack struck ${_col(c)}${r + 1}';
     } else {
-      statusMsg = '🌊 Miss — M5Stack splashed ${_col(c)}${r + 1}';
+      statusMsg = ' Miss — M5Stack splashed ${_col(c)}${r + 1}';
     }
 
     // After M5 fires, it's Flutter's turn
@@ -186,7 +186,7 @@ class GameModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // M5Stack sent a state update 
+  // M5Stack sent a state update
   void _onM5State(Map<String, dynamic> data) {
     final int phaseInt = (data['phase'] as num?)?.toInt() ?? 1;
     final int m5Left = (data['myLeft'] as num?)?.toInt() ?? m5ShipsLeft;
@@ -195,7 +195,7 @@ class GameModel extends ChangeNotifier {
     final bool m5Turn = (data['myTurn'] as bool?) ?? true;
     final bool nowFlutterTurn = !m5Turn;
 
-    // Resolve pending shot result 
+    // Resolve pending shot result
     // After Flutter fires, M5 responds with a state update.
     // If m5Left decreased, our shot was a HIT.
     if (_pendingRow != null && _m5LeftBeforeFire != null) {
@@ -204,9 +204,15 @@ class GameModel extends ChangeNotifier {
           wasHit ? CellState.hit : CellState.miss;
 
       if (wasHit) {
-        detailMsg = '🎯 Direct hit on M5Stack!';
+        statusMsg = ' Direct hit on M5Stack!';
+        detailMsg = ' Your shot was accurate!';
+        if (m5Left <= 0) {
+          statusMsg = ' Victory! M5Stack fleet destroyed!';
+          detailMsg = 'You sank all enemy ships!';
+        }
       } else {
-        detailMsg = '🌊 Missed — keep trying!';
+        statusMsg = ' Missed — keep trying!';
+        detailMsg = 'M5Stack is defending…';
       }
 
       _pendingRow = null;
@@ -218,10 +224,24 @@ class GameModel extends ChangeNotifier {
 
     // Sync turn from M5 state (authoritative source of truth)
     // Only update flutterTurn mid-battle to avoid overwriting pending state
-    if (phaseInt == 1 && _pendingRow == null) {
-      flutterTurn = nowFlutterTurn;
-      if (flutterTurn) {
-        detailMsg = 'Tap the ATTACK grid below to fire!';
+    if (phaseInt == 1) {
+      final bool newFlutterTurn = nowFlutterTurn;
+      // Only update status messages if turn actually changed
+      // This prevents overwriting hit/miss messages when state arrives after move
+      if (newFlutterTurn != flutterTurn && _pendingRow == null) {
+        flutterTurn = newFlutterTurn;
+        if (flutterTurn) {
+          // Flutter's turn to attack
+          statusMsg = '⚔ Your turn to fire!';
+          detailMsg = 'Tap the ATTACK grid below to fire!';
+        } else {
+          // M5's turn to attack - waiting for M5 to fire
+          statusMsg = '🛡 Waiting for M5Stack…';
+          detailMsg = 'Watch your fleet!';
+        }
+      } else {
+        // Just update the turn variable without changing messages
+        flutterTurn = newFlutterTurn;
       }
     }
 
@@ -231,8 +251,10 @@ class GameModel extends ChangeNotifier {
       // M5 sends phase=2 + won=false when its own ships are gone (M5 lost)
       // M5 never sends phase=2 for Flutter losing (Flutter detects that itself)
       iWon = !m5Won; // M5 didn't win ⇒ Flutter won
-      statusMsg = iWon ? '🏆 You sank the M5Stack fleet!' : '💀 Defeated!';
-      detailMsg = iWon ? 'Victory — you win!' : 'M5Stack wins';
+      statusMsg = iWon
+          ? ' You sank the M5Stack fleet! RAAAAH'
+          : ' Defeated! u suck lol';
+      detailMsg = iWon ? 'Victory - you win!' : 'M5Stack wins';
       notifyListeners();
       return;
     }
@@ -256,7 +278,7 @@ class GameModel extends ChangeNotifier {
     // Temporary placeholder (updated when state comes back)
     attackGrid[row][col] = CellState.miss;
 
-    statusMsg = '🎯 Fired at ${_col(col)}${row + 1}…';
+    statusMsg = ' Fired at ${_col(col)}${row + 1}…';
     detailMsg = 'Waiting for M5Stack response';
 
     ble.sendMove(row, col);

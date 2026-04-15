@@ -62,6 +62,10 @@ volatile bool pendingMove = false;
 volatile int  pendingRow  = -1;
 volatile int  pendingCol  = -1;
 
+//  Phase transition flag (signal from BLE callback to redraw screen in main loop)
+volatile bool phaseChanged = false;
+volatile GamePhase newPhase = WAITING;
+
 //  Pre placed ships 
 const int MY_SHIPS[3][2] = { {1,1}, {3,3}, {5,0} };
 
@@ -140,15 +144,17 @@ class ServerCallbacks : public BLEServerCallbacks {
         deviceConnected = true;
         Serial.println("[BLE] Flutter connected");
         gs.phase = BATTLE;
+        phaseChanged = true;  // Signal main loop to redraw
+        newPhase = BATTLE;
         sendStateUpdate();
-        drawAttackScreen();
     }
     void onDisconnect(BLEServer *pServer) {
         deviceConnected = false;
         Serial.println("[BLE] Disconnected - restarting advertising");
         pServer->startAdvertising();
         gs.phase = WAITING;
-        drawWaitingScreen();
+        phaseChanged = true;  // Signal main loop to redraw
+        newPhase = WAITING;
     }
 };
 
@@ -202,6 +208,16 @@ void setup() {
 
 void loop() {
     M5.update();
+
+    // Handle phase transitions safely from main loop (not from BLE callback)
+    if (phaseChanged) {
+        phaseChanged = false;
+        if (newPhase == BATTLE) {
+            drawAttackScreen();
+        } else if (newPhase == WAITING) {
+            drawWaitingScreen();
+        }
+    }
 
     if (pendingMove) {
         pendingMove = false;
@@ -440,6 +456,7 @@ void applyMyShot(int row, int col) {
     gs.enemyGrid[row][col] = MISS;  // Flutter confirms
     gs.myTurn = false;
     sendMove(row, col);
+    sendStateUpdate();  // Notify Flutter of turn change immediately
     drawDefendScreen();             // swap screen while waiting
 }
 
