@@ -13,21 +13,21 @@ import 'constants.dart';
 ///     → M5 notifies: {"phase": 0-2, "myTurn": bool, "myLeft": int,
 ///                      "enLeft": int, "won": bool}
 class BleManager {
-  BluetoothDevice?            _device;
-  BluetoothCharacteristic?    _moveChar;
-  BluetoothCharacteristic?    _stateChar;
-  StreamSubscription<List<int>>?              _moveSub;
-  StreamSubscription<List<int>>?              _stateSub;
+  BluetoothDevice? _device;
+  BluetoothCharacteristic? _moveChar;
+  BluetoothCharacteristic? _stateChar;
+  StreamSubscription<List<int>>? _moveSub;
+  StreamSubscription<List<int>>? _stateSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
 
   bool _connected = false;
   bool get connected => _connected;
 
-  // Callbacks set by GameModel 
+  // Callbacks set by GameModel
   void Function(Map<String, dynamic>)? onMoveReceived;
   void Function(Map<String, dynamic>)? onStateReceived;
-  void Function()?                      onConnected;
-  void Function()?                      onDisconnected;
+  void Function()? onConnected;
+  void Function()? onDisconnected;
 
   // Connect to a scanned device
   Future<void> connect(BluetoothDevice device) async {
@@ -103,37 +103,64 @@ class BleManager {
   void _handleMove(List<int> data) {
     if (data.isEmpty) return;
     try {
-      final map = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+      final decoded = utf8.decode(data, allowMalformed: true);
+      final jsonStr = _extractJson(decoded);
+      if (jsonStr == null) {
+        print('[BLE] No valid JSON found in move data');
+        print('[BLE] Raw: $decoded');
+        return;
+      }
+      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
       if (map.containsKey('r') && map.containsKey('c')) {
         onMoveReceived?.call(map);
       }
     } catch (e) {
       // ignore: avoid_print
-      print('[BLE] Move parse error: $e  raw=${utf8.decode(data)}');
+      print('[BLE] Move parse error: $e');
+      print(
+          '[BLE] Raw bytes: ${data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}');
     }
   }
 
   void _handleState(List<int> data) {
     if (data.isEmpty) return;
     try {
-      final map = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+      final decoded = utf8.decode(data, allowMalformed: true);
+      final jsonStr = _extractJson(decoded);
+      if (jsonStr == null) {
+        print('[BLE] No valid JSON found in state data');
+        print('[BLE] Raw: $decoded');
+        return;
+      }
+      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
       onStateReceived?.call(map);
     } catch (e) {
       // ignore: avoid_print
-      print('[BLE] State parse error: $e  raw=${utf8.decode(data)}');
+      print('[BLE] State parse error: $e');
+      print(
+          '[BLE] Raw bytes (${data.length}): ${data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}');
     }
+  }
+
+  /// Extract valid JSON from a string that may contain padding/garbage.
+  /// Looks for { ... } pattern and returns only that substring.
+  String? _extractJson(String str) {
+    final start = str.indexOf('{');
+    final end = str.lastIndexOf('}');
+    if (start == -1 || end == -1 || start > end) return null;
+    return str.substring(start, end + 1);
   }
 
   void _cleanup() {
     _moveSub?.cancel();
     _stateSub?.cancel();
     _connSub?.cancel();
-    _moveSub    = null;
-    _stateSub   = null;
-    _connSub    = null;
-    _moveChar   = null;
-    _stateChar  = null;
-    _device     = null;
+    _moveSub = null;
+    _stateSub = null;
+    _connSub = null;
+    _moveChar = null;
+    _stateChar = null;
+    _device = null;
   }
 
   /// Case-insensitive UUID comparison, ignoring dashes.

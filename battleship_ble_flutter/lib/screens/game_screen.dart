@@ -21,8 +21,7 @@ class GameScreen extends StatelessWidget {
           return Stack(
             children: [
               SafeArea(child: _GameBody(model: model)),
-              if (model.phase == GamePhase.over)
-                _GameOverOverlay(model: model),
+              if (model.phase == GamePhase.over) _GameOverOverlay(model: model),
             ],
           );
         },
@@ -40,52 +39,52 @@ class _GameBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Turn banner 
+        // Turn banner
         _TurnBanner(model: model),
 
-        // Scrollable content 
+        // Scrollable content
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Column(
               children: [
-                // MY FLEET (defense) 
+                // MY FLEET (defense)
                 _SectionLabel(
-                  label:    'MY FLEET',
+                  label: 'MY FLEET',
                   iconData: Icons.anchor,
-                  color:    kShip,
+                  color: kShip,
                 ),
                 const SizedBox(height: 4),
                 Center(
                   child: BattleGrid(
-                    grid:      model.myGrid,
+                    grid: model.myGrid,
                     showShips: true,
-                    glowRow:   model.lastEventRow,
-                    glowCol:   model.lastEventCol,
+                    glowRow: model.lastEventRow,
+                    glowCol: model.lastEventCol,
                   ),
                 ),
 
                 const SizedBox(height: 10),
 
-                // Status bar 
+                // Status bar
                 _StatusBar(model: model),
 
                 const SizedBox(height: 10),
 
-                // ATTACK grid 
+                // ATTACK grid
                 _SectionLabel(
-                  label:    model.flutterTurn ? 'ATTACK — TAP TO FIRE!' : 'ATTACK',
+                  label: model.flutterTurn ? 'ATTACK — TAP TO FIRE!' : 'ATTACK',
                   iconData: Icons.gps_fixed,
-                  color:    model.flutterTurn ? kCursor : kSubtext,
+                  color: model.flutterTurn ? kCursor : kSubtext,
                 ),
                 const SizedBox(height: 4),
                 Center(
                   child: BattleGrid(
-                    grid:        model.attackGrid,
-                    showShips:   false,
+                    grid: model.attackGrid,
+                    showShips: false,
                     interactive: model.flutterTurn,
-                    enabled:     model.flutterTurn,
-                    onTap:       model.fireAt,
+                    enabled: model.flutterTurn,
+                    onTap: model.fireAt,
                   ),
                 ),
 
@@ -108,9 +107,9 @@ class _TurnBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFlutterTurn = model.flutterTurn;
-    final bg   = isFlutterTurn ? kGreen   : kRedBan;
-    final fg   = isFlutterTurn ? Colors.black : kWhite;
-    final text = isFlutterTurn ? '⚔  YOUR TURN' : '🛡  INCOMING FIRE';
+    final bg = isFlutterTurn ? kGreen : kRedBan;
+    final fg = isFlutterTurn ? Colors.black : kWhite;
+    final text = isFlutterTurn ? 'YOUR TURN' : 'INCOMING FIRE';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 350),
@@ -123,16 +122,16 @@ class _TurnBanner extends StatelessWidget {
           Text(
             text,
             style: TextStyle(
-              color:       fg,
-              fontSize:    13,
-              fontWeight:  FontWeight.bold,
+              color: fg,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
               letterSpacing: 2,
             ),
           ),
           Text(
             model.statusMsg,
             style: TextStyle(
-              color:    fg.withOpacity(0.85),
+              color: fg.withOpacity(0.85),
               fontSize: 11,
             ),
             overflow: TextOverflow.ellipsis,
@@ -156,9 +155,9 @@ class _StatusBar extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 12),
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       decoration: BoxDecoration(
-        color:        kStatusBg,
+        color: kStatusBg,
         borderRadius: BorderRadius.circular(6),
-        border:       Border.all(color: kGridLine),
+        border: Border.all(color: kGridLine),
       ),
       child: Column(
         children: [
@@ -178,13 +177,13 @@ class _StatusBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ShipHealthBar(
-                label:     'MY FLEET',
-                total:     kTotalShipCells,
+                label: 'MY FLEET',
+                total: kTotalShipCells,
                 remaining: model.myShipsLeft,
               ),
               ShipHealthBar(
-                label:     'ENEMY',
-                total:     kTotalShipCells,
+                label: 'ENEMY',
+                total: kTotalShipCells,
                 remaining: model.m5ShipsLeft,
               ),
             ],
@@ -197,9 +196,9 @@ class _StatusBar extends StatelessWidget {
 
 //  Section label
 class _SectionLabel extends StatelessWidget {
-  final String   label;
+  final String label;
   final IconData iconData;
-  final Color    color;
+  final Color color;
 
   const _SectionLabel({
     required this.label,
@@ -233,9 +232,9 @@ class _GameOverOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final won  = model.iWon;
-    final bg   = won ? kGreen.withOpacity(0.15)  : kRedBan.withOpacity(0.15);
-    final card = won ? const Color(0xFF003010)    : const Color(0xFF300010);
+    final won = model.iWon;
+    final bg = won ? kGreen.withOpacity(0.15) : kRedBan.withOpacity(0.15);
+    final card = won ? const Color(0xFF003010) : const Color(0xFF300010);
     final iconColor = won ? kGreen : kHit;
 
     return AnimatedOpacity(
@@ -248,9 +247,9 @@ class _GameOverOverlay extends StatelessWidget {
             width: 300,
             padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(
-              color:        card,
+              color: card,
               borderRadius: BorderRadius.circular(16),
-              border:       Border.all(color: iconColor, width: 2),
+              border: Border.all(color: iconColor, width: 2),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -267,9 +266,9 @@ class _GameOverOverlay extends StatelessWidget {
                 Text(
                   won ? 'VICTORY!' : 'DEFEATED',
                   style: TextStyle(
-                    color:       iconColor,
-                    fontSize:    30,
-                    fontWeight:  FontWeight.bold,
+                    color: iconColor,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
                     letterSpacing: 4,
                   ),
                 ),
@@ -350,7 +349,7 @@ class _GameOverOverlay extends StatelessWidget {
 class _StatChip extends StatelessWidget {
   final String label;
   final String value;
-  final Color  color;
+  final Color color;
 
   const _StatChip({
     required this.label,
@@ -362,7 +361,9 @@ class _StatChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(value,
+            style: TextStyle(
+                color: color, fontSize: 20, fontWeight: FontWeight.bold)),
         Text(label, style: kLabelStyle),
       ],
     );

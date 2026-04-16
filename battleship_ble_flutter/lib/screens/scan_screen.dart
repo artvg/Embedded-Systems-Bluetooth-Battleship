@@ -16,12 +16,12 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  bool                 _scanning    = false;
-  bool                 _connecting  = false;
-  String               _statusText  = 'Tap "Scan" to find the M5Stack';
-  List<ScanResult>     _results     = [];
-  StreamSubscription?  _resultsSub;
-  StreamSubscription?  _scanDoneSub;
+  bool _scanning = false;
+  bool _connecting = false;
+  String _statusText = 'Tap "Scan" to find the M5Stack';
+  List<ScanResult> _results = [];
+  StreamSubscription? _resultsSub;
+  StreamSubscription? _scanDoneSub;
 
   @override
   void initState() {
@@ -37,7 +37,7 @@ class _ScanScreenState extends State<ScanScreen> {
     super.dispose();
   }
 
-  // Permissions 
+  // Permissions
   Future<void> _requestPermissions() async {
     await [
       Permission.bluetooth,
@@ -47,12 +47,12 @@ class _ScanScreenState extends State<ScanScreen> {
     ].request();
   }
 
-  // Scan 
+  // Scan
   Future<void> _startScan() async {
     if (_scanning || _connecting) return;
     setState(() {
-      _scanning   = true;
-      _results    = [];
+      _scanning = true;
+      _results = [];
       _statusText = 'Scanning for Battleship…';
     });
 
@@ -60,9 +60,31 @@ class _ScanScreenState extends State<ScanScreen> {
     _resultsSub?.cancel();
     _scanDoneSub?.cancel();
 
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 12),
-    );
+    // Debug mode: simulate device after delay
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+          _statusText = 'Found simulated device (Debug Mode)';
+        });
+      }
+      return;
+    }
+
+    try {
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+          _statusText = 'Scan error: $e\n(Using physical device recommended)';
+        });
+      }
+      return;
+    }
 
     _resultsSub = FlutterBluePlus.scanResults.listen((results) {
       if (!mounted) return;
@@ -81,9 +103,9 @@ class _ScanScreenState extends State<ScanScreen> {
       if (!mounted) return;
       if (!scanning) {
         setState(() {
-          _scanning   = false;
+          _scanning = false;
           _statusText = _results.isEmpty
-              ? 'No devices found — tap Scan to retry'
+              ? 'No devices found — tap Scan to retry\n(Emulator may not support BLE)'
               : 'Tap a device to connect';
         });
       }
@@ -97,7 +119,7 @@ class _ScanScreenState extends State<ScanScreen> {
     if (mounted) setState(() => _scanning = false);
   }
 
-  // Connect 
+  // Connect
   Future<void> _connect(BluetoothDevice device) async {
     if (_connecting) return;
     await _stopScan();
@@ -108,6 +130,18 @@ class _ScanScreenState extends State<ScanScreen> {
     });
 
     final model = context.read<GameModel>();
+
+    // Debug mode: skip actual BLE connection
+    if (kDebugMode) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const GameScreen()),
+        );
+      }
+      return;
+    }
+
     try {
       await model.ble.connect(device);
       if (mounted) {
@@ -125,7 +159,7 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  // UI 
+  // UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -149,8 +183,10 @@ class _ScanScreenState extends State<ScanScreen> {
                       'FIND OPPONENT',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: kWhite, fontSize: 16,
-                        fontWeight: FontWeight.bold, letterSpacing: 3,
+                        color: kWhite,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 3,
                       ),
                     ),
                   ),
@@ -190,7 +226,8 @@ class _ScanScreenState extends State<ScanScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _scanning ? kRedBan : kGreen,
                   foregroundColor: _scanning ? kWhite : Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -207,11 +244,11 @@ class _ScanScreenState extends State<ScanScreen> {
                   itemCount: _results.length,
                   separatorBuilder: (_, __) => const Divider(color: kGridLine),
                   itemBuilder: (ctx, i) {
-                    final r      = _results[i];
-                    final name   = r.device.platformName.isNotEmpty
+                    final r = _results[i];
+                    final name = r.device.platformName.isNotEmpty
                         ? r.device.platformName
                         : r.device.remoteId.str;
-                    final isBs   = name.contains('Battleship');
+                    final isBs = name.contains('Battleship');
                     return ListTile(
                       leading: Icon(
                         Icons.bluetooth,
@@ -221,7 +258,8 @@ class _ScanScreenState extends State<ScanScreen> {
                         name,
                         style: TextStyle(
                           color: isBs ? kGreen : kWhite,
-                          fontWeight: isBs ? FontWeight.bold : FontWeight.normal,
+                          fontWeight:
+                              isBs ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
                       subtitle: Text(
@@ -251,7 +289,7 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 }
 
-// Animated radar spinner 
+// Animated radar spinner
 
 class _RadarIcon extends StatefulWidget {
   const _RadarIcon();
@@ -268,7 +306,7 @@ class _RadarIconState extends State<_RadarIcon>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync:    this,
+      vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat();
   }
