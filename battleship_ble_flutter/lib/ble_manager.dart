@@ -23,17 +23,16 @@ class BleManager {
   bool _connected = false;
   bool get connected => _connected;
 
-  // Callbacks set by GameModel
+  // ── Callbacks set by GameModel ────────────────────────────────────────────
   void Function(Map<String, dynamic>)? onMoveReceived;
   void Function(Map<String, dynamic>)? onStateReceived;
   void Function()? onConnected;
   void Function()? onDisconnected;
 
-  // Connect to a scanned device
+  // ── Connect to a scanned device ──────────────────────────────────────────
   Future<void> connect(BluetoothDevice device) async {
     _device = device;
 
-    // Listen for disconnection
     _connSub = device.connectionState.listen((state) {
       if (state == BluetoothConnectionState.disconnected && _connected) {
         _connected = false;
@@ -47,37 +46,48 @@ class BleManager {
       autoConnect: false,
     );
 
-    // Discover services and subscribe to characteristics
     final services = await device.discoverServices();
     bool found = false;
 
     for (final svc in services) {
       if (_uuidEq(svc.uuid.toString(), kServiceUUID)) {
         found = true;
+
         for (final ch in svc.characteristics) {
           final uuid = ch.uuid.toString();
+
           if (_uuidEq(uuid, kMoveCharUUID)) {
             _moveChar = ch;
             await ch.setNotifyValue(true);
-            _moveSub = ch.onValueReceived.listen(_handleMove);
+            _moveSub = ch.lastValueStream.listen(_handleMove);
+            // ignore: avoid_print
+            print('[BLE] Move notify subscribed');
           } else if (_uuidEq(uuid, kStateCharUUID)) {
             _stateChar = ch;
             await ch.setNotifyValue(true);
-            _stateSub = ch.onValueReceived.listen(_handleState);
+            _stateSub = ch.lastValueStream.listen(_handleState);
+            // ignore: avoid_print
+            print('[BLE] State notify subscribed');
           }
         }
         break;
       }
     }
 
-    if (!found) throw Exception('Battleship BLE service not found on device.');
-    if (_moveChar == null) throw Exception('Move characteristic not found.');
+    if (!found) {
+      throw Exception('Battleship BLE service not found on device.');
+    }
+    if (_moveChar == null) {
+      throw Exception('Move characteristic not found.');
+    }
 
     _connected = true;
+    // ignore: avoid_print
+    print('[BLE] Connected');
     onConnected?.call();
   }
 
-  // Send Flutter's move to M5Stack
+  // ── Send Flutter's move to M5Stack ────────────────────────────────────────
   Future<void> sendMove(int row, int col) async {
     if (_moveChar == null || !_connected) return;
     try {
@@ -91,64 +101,71 @@ class BleManager {
     }
   }
 
-  // Disconnect cleanly
+  // ── Send game over signal to M5 so it shows WINNER screen ─────────────────
+  Future<void> sendGameOver() async {
+    if (_moveChar == null || !_connected) return;
+    try {
+      final payload = utf8.encode(jsonEncode({'gameover': true}));
+      await _moveChar!.write(payload, withoutResponse: false);
+      // ignore: avoid_print
+      print('[BLE] Sent gameover signal');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[BLE] Write error (gameover): $e');
+    }
+  }
+
+  // ── Send proximity hint to M5 so fan spins after M5 misses ────────────────
+  Future<void> sendProximity(int prox) async {
+    if (_moveChar == null || !_connected) return;
+    try {
+      final payload = utf8.encode(jsonEncode({'prox': prox}));
+      await _moveChar!.write(payload, withoutResponse: false);
+      // ignore: avoid_print
+      print('[BLE] Sent proximity: $prox');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[BLE] Write error (prox): $e');
+    }
+  }
+
+  // ── Disconnect cleanly ────────────────────────────────────────────────────
   Future<void> disconnect() async {
     _connected = false;
     await _device?.disconnect();
     _cleanup();
   }
 
-  // Private helpers
+  // ── Private helpers ───────────────────────────────────────────────────────
 
   void _handleMove(List<int> data) {
     if (data.isEmpty) return;
     try {
-      final decoded = utf8.decode(data, allowMalformed: true);
-      final jsonStr = _extractJson(decoded);
-      if (jsonStr == null) {
-        print('[BLE] No valid JSON found in move data');
-        print('[BLE] Raw: $decoded');
-        return;
-      }
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final raw = utf8.decode(data);
+      // ignore: avoid_print
+      print('[BLE] Move raw: $raw');
+      final map = jsonDecode(raw) as Map<String, dynamic>;
       if (map.containsKey('r') && map.containsKey('c')) {
         onMoveReceived?.call(map);
       }
     } catch (e) {
       // ignore: avoid_print
-      print('[BLE] Move parse error: $e');
-      print(
-          '[BLE] Raw bytes: ${data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}');
+      print('[BLE] Move parse error: $e  raw=${utf8.decode(data)}');
     }
   }
 
   void _handleState(List<int> data) {
     if (data.isEmpty) return;
     try {
-      final decoded = utf8.decode(data, allowMalformed: true);
-      final jsonStr = _extractJson(decoded);
-      if (jsonStr == null) {
-        print('[BLE] No valid JSON found in state data');
-        print('[BLE] Raw: $decoded');
-        return;
-      }
-      final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final raw = utf8.decode(data);
+      // ignore: avoid_print
+      print('[BLE] State raw: $raw');
+      final map = jsonDecode(raw) as Map<String, dynamic>;
       onStateReceived?.call(map);
     } catch (e) {
       // ignore: avoid_print
-      print('[BLE] State parse error: $e');
-      print(
-          '[BLE] Raw bytes (${data.length}): ${data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}');
+      print('[BLE] State parse error: $e  raw=${utf8.decode(data)}');
     }
-  }
-
-  /// Extract valid JSON from a string that may contain padding/garbage.
-  /// Looks for { ... } pattern and returns only that substring.
-  String? _extractJson(String str) {
-    final start = str.indexOf('{');
-    final end = str.lastIndexOf('}');
-    if (start == -1 || end == -1 || start > end) return null;
-    return str.substring(start, end + 1);
   }
 
   void _cleanup() {

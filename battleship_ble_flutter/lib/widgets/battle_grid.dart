@@ -48,7 +48,7 @@ class BattleGrid extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(width: _labelW),
+              const SizedBox(width: _labelW),
               ...List.generate(kGridSize, (c) => SizedBox(
                 width: cs,
                 child: Text(
@@ -171,7 +171,7 @@ class _CrossPainter extends CustomPainter {
       ..color      = Colors.white
       ..strokeWidth = 2.5
       ..strokeCap  = StrokeCap.round;
-    canvas.drawLine(Offset(0, 0), Offset(size.width, size.height), p);
+    canvas.drawLine(const Offset(0, 0), Offset(size.width, size.height), p);
     canvas.drawLine(Offset(size.width, 0), Offset(0, size.height), p);
   }
 

@@ -21,7 +21,8 @@ class GameScreen extends StatelessWidget {
           return Stack(
             children: [
               SafeArea(child: _GameBody(model: model)),
-              if (model.phase == GamePhase.over) _GameOverOverlay(model: model),
+              if (model.phase == GamePhase.over)
+                _GameOverOverlay(model: model),
             ],
           );
         },
@@ -30,7 +31,10 @@ class GameScreen extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 //  Main game body
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _GameBody extends StatelessWidget {
   final GameModel model;
   const _GameBody({required this.model});
@@ -39,17 +43,22 @@ class _GameBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Turn banner
+        // ── Turn banner ─────────────────────────────────────────────────────
         _TurnBanner(model: model),
 
-        // Scrollable content
+        // ── Scrollable content ──────────────────────────────────────────────
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Column(
               children: [
-                // MY FLEET (defense)
-                _SectionLabel(
+                // ── Live scoreboard ────────────────────────────────────────
+                _LiveScoreBar(model: model),
+
+                const SizedBox(height: 12),
+
+                // ── MY FLEET (defense) ──────────────────────────────────────
+                const _SectionLabel(
                   label: 'MY FLEET',
                   iconData: Icons.anchor,
                   color: kShip,
@@ -66,12 +75,12 @@ class _GameBody extends StatelessWidget {
 
                 const SizedBox(height: 10),
 
-                // Status bar
+                // ── Status bar ──────────────────────────────────────────────
                 _StatusBar(model: model),
 
                 const SizedBox(height: 10),
 
-                // ATTACK grid
+                // ── ATTACK grid ─────────────────────────────────────────────
                 _SectionLabel(
                   label: model.flutterTurn ? 'ATTACK — TAP TO FIRE!' : 'ATTACK',
                   iconData: Icons.gps_fixed,
@@ -98,7 +107,9 @@ class _GameBody extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 //  Turn banner
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TurnBanner extends StatelessWidget {
   final GameModel model;
@@ -109,7 +120,7 @@ class _TurnBanner extends StatelessWidget {
     final isFlutterTurn = model.flutterTurn;
     final bg = isFlutterTurn ? kGreen : kRedBan;
     final fg = isFlutterTurn ? Colors.black : kWhite;
-    final text = isFlutterTurn ? 'YOUR TURN' : 'INCOMING FIRE';
+    final text = isFlutterTurn ? '⚔  YOUR TURN' : ' INCOMING FIRE';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 350),
@@ -142,7 +153,83 @@ class _TurnBanner extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Live scoreboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _LiveScoreBar extends StatelessWidget {
+  final GameModel model;
+  const _LiveScoreBar({required this.model});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+      decoration: BoxDecoration(
+        color: kStatusBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: kGridLine),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          Column(
+            children: [
+              const Text(
+                'YOU',
+                style: TextStyle(
+                  color: kSubtext,
+                  fontSize: 11,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${model.scoreWins}',
+                style: const TextStyle(
+                  color: kGreen,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const Text(
+            '|',
+            style: TextStyle(color: kSubtext, fontSize: 24),
+          ),
+          Column(
+            children: [
+              const Text(
+                'ENEMY',
+                style: TextStyle(
+                  color: kSubtext,
+                  fontSize: 11,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${model.scoreLosses}',
+                style: const TextStyle(
+                  color: kHit,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Status bar
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _StatusBar extends StatelessWidget {
   final GameModel model;
@@ -161,7 +248,6 @@ class _StatusBar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Detail message
           if (model.detailMsg.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -171,8 +257,6 @@ class _StatusBar extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
-
-          // Ship health rows
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
@@ -194,7 +278,10 @@ class _StatusBar extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 //  Section label
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _SectionLabel extends StatelessWidget {
   final String label;
   final IconData iconData;
@@ -224,7 +311,9 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 //  Game Over Overlay
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _GameOverOverlay extends StatelessWidget {
   final GameModel model;
@@ -233,7 +322,6 @@ class _GameOverOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final won = model.iWon;
-    final bg = won ? kGreen.withOpacity(0.15) : kRedBan.withOpacity(0.15);
     final card = won ? const Color(0xFF003010) : const Color(0xFF300010);
     final iconColor = won ? kGreen : kHit;
 
@@ -254,7 +342,6 @@ class _GameOverOverlay extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Icon
                 Icon(
                   won ? Icons.emoji_events : Icons.sentiment_very_dissatisfied,
                   color: iconColor,
@@ -262,7 +349,6 @@ class _GameOverOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Title
                 Text(
                   won ? 'VICTORY!' : 'DEFEATED',
                   style: TextStyle(
@@ -274,7 +360,6 @@ class _GameOverOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
 
-                // Subtitle
                 Text(
                   model.statusMsg,
                   style: const TextStyle(color: kWhite, fontSize: 14),
@@ -283,7 +368,7 @@ class _GameOverOverlay extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   won
-                      ? 'You sank the M5Stack fleet! ⚓'
+                      ? 'You sank the M5Stack fleet!'
                       : 'M5Stack destroyed your fleet!',
                   style: const TextStyle(color: kSubtext, fontSize: 12),
                   textAlign: TextAlign.center,
@@ -291,18 +376,17 @@ class _GameOverOverlay extends StatelessWidget {
 
                 const SizedBox(height: 24),
 
-                // Stats
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     _StatChip(
                       label: 'Your ships',
-                      value: '${model.myShipsLeft}/${kTotalShipCells}',
+                      value: '${model.myShipsLeft}/$kTotalShipCells',
                       color: kShip,
                     ),
                     _StatChip(
                       label: "M5 ships",
-                      value: '${model.m5ShipsLeft}/${kTotalShipCells}',
+                      value: '${model.m5ShipsLeft}/$kTotalShipCells',
                       color: kSubtext,
                     ),
                   ],
@@ -310,12 +394,73 @@ class _GameOverOverlay extends StatelessWidget {
 
                 const SizedBox(height: 24),
 
-                // Play again button
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: kStatusBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: kGridLine),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      Column(
+                        children: [
+                          const Text(
+                            'YOU',
+                            style: TextStyle(
+                              color: kSubtext,
+                              fontSize: 11,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${model.scoreWins}',
+                            style: const TextStyle(
+                              color: kGreen,
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        '|',
+                        style: TextStyle(color: kSubtext, fontSize: 28),
+                      ),
+                      Column(
+                        children: [
+                          const Text(
+                            'ENEMY',
+                            style: TextStyle(
+                              color: kSubtext,
+                              fontSize: 11,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${model.scoreLosses}',
+                            style: const TextStyle(
+                              color: kHit,
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
-                      // Disconnect and go back to placement
                       model.ble.disconnect();
                       model.resetPlacement();
                       Navigator.of(context).pushAndRemoveUntil(
@@ -361,9 +506,14 @@ class _StatChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value,
-            style: TextStyle(
-                color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         Text(label, style: kLabelStyle),
       ],
     );

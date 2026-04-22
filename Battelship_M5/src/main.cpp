@@ -1,10 +1,19 @@
 #include <NimBLEDevice.h>
 #include <M5Core2.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
 
 #define SERVICE_UUID    "f4893cb2-c54a-4c85-9339-4c03f3f19077"
 #define MOVE_CHAR_UUID  "ceb4ef8c-12b5-4932-b2d5-3bf26fe18af5"
 #define STATE_CHAR_UUID "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+// ----------------------------------------------------------------
+//  WiFi + GCP
+// ----------------------------------------------------------------
+#define WIFI_SSID     "SpectrumSetup-53"
+#define WIFI_PASSWORD "smallshark225"
+#define GCP_URL       "https://navalstrike-767201081384.europe-west1.run.app"
 
 #define GRID_SIZE  6
 #define CELL_SIZE  32
@@ -26,7 +35,14 @@
 #define COL_STATUSBG M5.Lcd.color565(  8, 24, 42)
 #define COL_SHIPDEAD M5.Lcd.color565( 80, 20, 20)
 #define COL_CURSOR   M5.Lcd.color565(255,220,  0)
-#define COL_PREVIEW  M5.Lcd.color565( 80,160, 80)  // ghost preview color
+#define COL_PREVIEW  M5.Lcd.color565( 80,160, 80)
+
+#define FAN_PIN     26
+#define FAN_ON      HIGH
+#define FAN_OFF_VAL LOW
+
+int scoreWins   = 0;
+int scoreLosses = 0;
 
 enum CellState { EMPTY, SHIP, HIT, MISS };
 enum GamePhase { PLACEMENT, WAITING, BATTLE, OVER };
@@ -51,17 +67,16 @@ bool deviceConnected = false;
 volatile bool pendingConnect    = false;
 volatile bool pendingDisconnect = false;
 volatile bool pendingMove       = false;
+volatile bool pendingWin        = false;
 volatile int  pendingRow        = -1;
 volatile int  pendingCol        = -1;
 
-// Placement state
-int  placeRow      = 0;
-int  placeCol      = 0;
-int  shipsPlaced   = 0;
+int  placeRow    = 0;
+int  placeCol    = 0;
+int  shipsPlaced = 0;
 #define SHIPS_NEEDED  3
 #define SHIP_LEN      2
 
-// Battle cursor
 int  cursorRow = 0;
 int  cursorCol = 0;
 
@@ -70,6 +85,11 @@ unsigned long lastBtnMs = 0;
 
 // Forward declarations
 void initGame();
+void initFan();
+void initWiFi();
+void postMatchResult();
+void setFan(bool on);
+int  nearestShipDistance(int row, int col);
 void drawPlacementScreen();
 void drawPlacementGrid();
 void drawPlacementCursor(bool visible);
@@ -80,6 +100,7 @@ void drawAttackScreen();
 void drawDefendScreen();
 void drawWaitingScreen();
 void drawGameOverScreen();
+void drawScoreboard();
 void drawGrid(CellState grid[GRID_SIZE][GRID_SIZE], bool showShips);
 void drawCell(int row, int col, CellState state, bool showShip);
 void drawCursor(int row, int col, bool visible);
@@ -95,11 +116,20 @@ void initBLE();
 
 class MoveCharCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pChar) {
-        if (gs.phase != BATTLE || gs.myTurn) return;
         std::string raw = pChar->getValue();
         if (raw.length() == 0) return;
         StaticJsonDocument<64> doc;
         if (deserializeJson(doc, raw.c_str())) return;
+
+        if (doc.containsKey("gameover") && doc["gameover"] == true) {
+            gs.phase   = OVER;
+            gs.iWon    = true;
+            pendingWin = true;
+            Serial.println("[GAME] Flutter signals game over — M5 wins!");
+            return;
+        }
+
+        if (gs.phase != BATTLE || gs.myTurn) return;
         int r = doc["r"] | -1;
         int c = doc["c"] | -1;
         if (r < 0 || r >= GRID_SIZE || c < 0 || c >= GRID_SIZE) return;
@@ -127,10 +157,15 @@ class ServerCallbacks : public BLEServerCallbacks {
 //  Setup
 // ================================================================
 void setup() {
+    // Kill fan immediately before anything else runs
+    pinMode(26, OUTPUT);
+    digitalWrite(26, LOW);
+
     M5.begin();
     M5.Lcd.setRotation(1);
     Serial.begin(115200);
 
+    initFan();
     initGame();
     drawPlacementScreen();
 }
@@ -141,18 +176,18 @@ void setup() {
 void loop() {
     M5.update();
 
-    // ---- PLACEMENT PHASE ----
     if (gs.phase == PLACEMENT) {
         handlePlacementButtons();
         return;
     }
 
-    // ---- BLE EVENTS ----
     if (pendingConnect) {
         pendingConnect = false;
         gs.phase  = BATTLE;
         gs.myTurn = true;
-        delay(800);
+        delay(1200);
+        sendStateUpdate();
+        delay(300);
         sendStateUpdate();
         cursorRow = 0;
         cursorCol = 0;
@@ -164,7 +199,17 @@ void loop() {
         pendingDisconnect = false;
         bleServer->startAdvertising();
         gs.phase = WAITING;
+        setFan(false);
         drawWaitingScreen();
+    }
+
+    if (pendingWin) {
+        pendingWin = false;
+        scoreWins++;
+        setFan(false);
+        postMatchResult();
+        drawGameOverScreen();
+        return;
     }
 
     if (pendingMove) {
@@ -177,6 +222,115 @@ void loop() {
     }
 
     delay(20);
+}
+
+// ================================================================
+//  WiFi init
+// ================================================================
+void initWiFi() {
+    Serial.printf("[WiFi] Connecting to %s\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+        Serial.println("\n[WiFi] Failed to connect — skipping GCP post");
+    }
+}
+
+// ================================================================
+//  POST match result to GCP
+// ================================================================
+void postMatchResult() {
+    // Connect WiFi if not already connected
+    if (WiFi.status() != WL_CONNECTED) {
+        initWiFi();
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[GCP] No WiFi — skipping post");
+        return;
+    }
+
+    // Show uploading message on screen
+    M5.Lcd.fillScreen(COL_BG);
+    drawBanner("  SAVING RESULT...  ", COL_GRIDLINE, COL_WHITE);
+    M5.Lcd.setTextColor(COL_SUBTEXT);
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.setCursor(80, 120);
+    M5.Lcd.print("Uploading to cloud...");
+
+    // Build JSON payload
+    StaticJsonDocument<128> doc;
+    doc["winner"]          = gs.iWon ? "m5" : "flutter";
+    doc["flutterShipsLeft"] = gs.enemyShipsLeft;
+    doc["m5ShipsLeft"]     = gs.myShipsLeft;
+    char payload[128];
+    serializeJson(doc, payload);
+
+    HTTPClient http;
+    http.begin(GCP_URL);
+    http.addHeader("Content-Type", "application/json");
+
+    int code = http.POST(payload);
+    Serial.printf("[GCP] POST status: %d\n", code);
+
+    if (code == 200) {
+        String response = http.getString();
+        Serial.printf("[GCP] Response: %s\n", response.c_str());
+
+        // Parse quote from response
+        StaticJsonDocument<256> resp;
+        if (!deserializeJson(resp, response)) {
+            const char* quote = resp["quote"] | "";
+            if (strlen(quote) > 0) {
+                // Show quote on screen briefly
+                M5.Lcd.fillRect(0, 100, 320, 80, COL_BG);
+                M5.Lcd.setTextColor(COL_SHIP);
+                M5.Lcd.setTextSize(1);
+                M5.Lcd.setCursor(10, 110);
+                M5.Lcd.print("\"");
+                M5.Lcd.print(quote);
+                M5.Lcd.print("\"");
+                delay(2500);
+            }
+        }
+    } else {
+        Serial.printf("[GCP] POST failed: %d\n", code);
+    }
+
+    http.end();
+}
+
+// ================================================================
+//  Fan
+// ================================================================
+void initFan() {
+    pinMode(FAN_PIN, OUTPUT);
+    digitalWrite(FAN_PIN, LOW);
+    Serial.println("[FAN] Initialized on GPIO 26");
+}
+
+void setFan(bool on) {
+    digitalWrite(FAN_PIN, on ? HIGH : LOW);
+}
+
+int nearestShipDistance(int row, int col) {
+    int minDist = 999;
+    for (int r = 0; r < GRID_SIZE; r++)
+        for (int c = 0; c < GRID_SIZE; c++)
+            if (gs.myGrid[r][c] == SHIP) {
+                int dist = abs(r - row) + abs(c - col);
+                if (dist < minDist) minDist = dist;
+            }
+    return minDist;
 }
 
 // ================================================================
@@ -209,8 +363,6 @@ void drawPlacementScreen() {
     drawColRowLabels();
     drawPlacementGrid();
     drawPlacementCursor(true);
-
-    // Bottom instructions
     M5.Lcd.fillRect(0, STATUS_Y, 320, 18, COL_STATUSBG);
     M5.Lcd.setTextColor(COL_SUBTEXT);
     M5.Lcd.setTextSize(1);
@@ -226,20 +378,16 @@ void drawPlacementGrid() {
             drawCell(r, c, gs.myGrid[r][c], true);
 }
 
-// Draw 2-cell preview cursor at placeRow, placeCol
 void drawPlacementCursor(bool visible) {
     for (int dc = 0; dc < SHIP_LEN; dc++) {
         int c = placeCol + dc;
         if (c >= GRID_SIZE) continue;
         int x = GRID_OX + c * CELL_SIZE;
         int y = GRID_OY + placeRow * CELL_SIZE;
-
         if (visible && gs.myGrid[placeRow][c] == EMPTY) {
-            // Draw green preview
             M5.Lcd.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2, COL_PREVIEW);
             M5.Lcd.drawRect(x, y, CELL_SIZE, CELL_SIZE, COL_CURSOR);
         } else if (!visible && gs.myGrid[placeRow][c] == EMPTY) {
-            // Restore water
             M5.Lcd.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2, COL_WATER);
             M5.Lcd.drawRect(x, y, CELL_SIZE, CELL_SIZE, COL_GRIDLINE);
         }
@@ -265,32 +413,25 @@ void commitShip(int row, int col) {
 void handlePlacementButtons() {
     unsigned long now = millis();
     if (now - lastBtnMs < BTN_DEBOUNCE_MS) return;
-
     bool pressed = false;
 
     if (M5.BtnA.wasPressed()) {
-        // Erase old preview
         drawPlacementCursor(false);
         placeRow = (placeRow + 1) % GRID_SIZE;
         drawPlacementCursor(true);
-        Serial.printf("[PLACE] Row → %d\n", placeRow);
         pressed = true;
     }
     else if (M5.BtnC.wasPressed()) {
         drawPlacementCursor(false);
-        // Wrap col so ship fits — if col+SHIP_LEN > GRID_SIZE, wrap to 0
         placeCol = (placeCol + 1) % (GRID_SIZE - SHIP_LEN + 1);
         drawPlacementCursor(true);
-        Serial.printf("[PLACE] Col → %d\n", placeCol);
         pressed = true;
     }
     else if (M5.BtnB.wasPressed()) {
         if (canPlaceShip(placeRow, placeCol)) {
             commitShip(placeRow, placeCol);
-            drawPlacementGrid();       // redraw grid with new ship
-            drawPlacementCursor(true); // redraw cursor
-
-            // Update status bar
+            drawPlacementGrid();
+            drawPlacementCursor(true);
             M5.Lcd.fillRect(0, STATUS_Y, 320, 18, COL_STATUSBG);
             M5.Lcd.setTextColor(COL_SUBTEXT);
             M5.Lcd.setTextSize(1);
@@ -298,18 +439,13 @@ void handlePlacementButtons() {
             char buf[40];
             snprintf(buf, sizeof(buf), "Ships: %d/%d placed", shipsPlaced, SHIPS_NEEDED);
             M5.Lcd.print(buf);
-
-            Serial.printf("[PLACE] Ship %d placed at (%d,%d)\n", shipsPlaced, placeRow, placeCol);
-
             if (shipsPlaced >= SHIPS_NEEDED) {
-                // All ships placed — start BLE and go to waiting
                 delay(500);
                 gs.phase = WAITING;
                 drawWaitingScreen();
                 initBLE();
             }
         } else {
-            // Flash red — can't place here
             drawPlacementCursor(false);
             for (int dc = 0; dc < SHIP_LEN; dc++) {
                 int c = placeCol + dc;
@@ -321,16 +457,14 @@ void handlePlacementButtons() {
             delay(200);
             drawPlacementGrid();
             drawPlacementCursor(true);
-            Serial.println("[PLACE] Can't place here");
         }
         pressed = true;
     }
-
     if (pressed) lastBtnMs = now;
 }
 
 // ================================================================
-//  BLE init — called after placement complete
+//  BLE init
 // ================================================================
 void initBLE() {
     BLEDevice::init("Battleship");
@@ -346,6 +480,7 @@ void initBLE() {
         NIMBLE_PROPERTY::NOTIFY
     );
     movChar->setCallbacks(new MoveCharCallbacks());
+    movChar->setValue("");
 
     stateChar = bleService->createCharacteristic(
         STATE_CHAR_UUID,
@@ -354,31 +489,41 @@ void initBLE() {
     );
 
     bleService->start();
-
     BLEAdvertising *adv = BLEDevice::getAdvertising();
     adv->addServiceUUID(SERVICE_UUID);
     adv->setScanResponse(false);
     adv->setMinPreferred(0x00);
     BLEDevice::startAdvertising();
-
     Serial.println("[BLE] Advertising as 'Battleship'");
 }
 
 // ================================================================
-//  Battle screens
+//  Screens
 // ================================================================
 void drawWaitingScreen() {
     M5.Lcd.fillScreen(COL_BG);
     drawBanner("    B A T T L E S H I P    ", COL_GRIDLINE, COL_WHITE);
     M5.Lcd.setTextColor(COL_SUBTEXT);
     M5.Lcd.setTextSize(1);
-    M5.Lcd.setCursor(72, 100);
+    M5.Lcd.setCursor(72, 90);
     M5.Lcd.print("Waiting for opponent");
-    M5.Lcd.setCursor(104, 118);
+    M5.Lcd.setCursor(104, 108);
     M5.Lcd.print("via Bluetooth...");
     M5.Lcd.setTextColor(COL_SHIP);
-    M5.Lcd.setCursor(134, 155);
+    M5.Lcd.setCursor(134, 140);
     M5.Lcd.print("* * *");
+    drawScoreboard();
+}
+
+void drawScoreboard() {
+    M5.Lcd.fillRect(0, STATUS_Y, 320, 18, COL_STATUSBG);
+    M5.Lcd.setTextColor(COL_GREEN);
+    M5.Lcd.setTextSize(1);
+    char buf[40];
+    snprintf(buf, sizeof(buf), "YOU: %d  |  ENEMY: %d", scoreWins, scoreLosses);
+    int textW = strlen(buf) * 6;
+    M5.Lcd.setCursor((320 - textW) / 2, STATUS_Y + 5);
+    M5.Lcd.print(buf);
 }
 
 void drawAttackScreen() {
@@ -470,12 +615,52 @@ void drawStatusBar() {
 }
 
 // ================================================================
+//  Game over screen
+// ================================================================
+void drawGameOverScreen() {
+    M5.Lcd.fillScreen(COL_BG);
+
+    if (gs.iWon) {
+        drawBanner("         GAME OVER         ", COL_GREEN, COL_BG);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setTextColor(COL_GREEN);
+        M5.Lcd.setCursor(74, 70);
+        M5.Lcd.print("WINNER");
+    } else {
+        drawBanner("         GAME OVER         ", COL_RED_BAN, COL_WHITE);
+        M5.Lcd.setTextSize(3);
+        M5.Lcd.setTextColor(COL_HIT);
+        M5.Lcd.setCursor(54, 70);
+        M5.Lcd.print("DEFEATED");
+    }
+
+    // YOU | ENEMY score
+    M5.Lcd.setTextSize(2);
+    M5.Lcd.setTextColor(COL_WHITE);
+    M5.Lcd.setCursor(60, 120);
+    M5.Lcd.print("YOU   |   ENEMY");
+
+    M5.Lcd.setTextSize(3);
+    M5.Lcd.setTextColor(COL_GREEN);
+    char scoreBuf[20];
+    snprintf(scoreBuf, sizeof(scoreBuf), " %d    |    %d", scoreWins, scoreLosses);
+    M5.Lcd.setCursor(44, 148);
+    M5.Lcd.print(scoreBuf);
+
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.setTextColor(COL_SUBTEXT);
+    M5.Lcd.setCursor(72, 200);
+    M5.Lcd.print("Press reset to play again");
+
+    while (true) { delay(1000); }
+}
+
+// ================================================================
 //  Battle button handler
 // ================================================================
 void handleButtons() {
     unsigned long now = millis();
     if (now - lastBtnMs < BTN_DEBOUNCE_MS) return;
-
     bool pressed = false;
 
     if (M5.BtnA.wasPressed()) {
@@ -483,7 +668,6 @@ void handleButtons() {
         drawCell(cursorRow, cursorCol, gs.enemyGrid[cursorRow][cursorCol], false);
         cursorRow = (cursorRow + 1) % GRID_SIZE;
         drawCursor(cursorRow, cursorCol, true);
-        Serial.printf("[BTN] A — row → %d\n", cursorRow);
         pressed = true;
     }
     else if (M5.BtnC.wasPressed()) {
@@ -491,7 +675,6 @@ void handleButtons() {
         drawCell(cursorRow, cursorCol, gs.enemyGrid[cursorRow][cursorCol], false);
         cursorCol = (cursorCol + 1) % GRID_SIZE;
         drawCursor(cursorRow, cursorCol, true);
-        Serial.printf("[BTN] C — col → %d\n", cursorCol);
         pressed = true;
     }
     else if (M5.BtnB.wasPressed()) {
@@ -507,9 +690,7 @@ void handleButtons() {
             applyMyShot(cursorRow, cursorCol);
         }
         pressed = true;
-        Serial.printf("[BTN] B — fire at (%d,%d)\n", cursorRow, cursorCol);
     }
-
     if (pressed) lastBtnMs = now;
 }
 
@@ -521,29 +702,44 @@ void applyMyShot(int row, int col) {
     gs.enemyGrid[row][col] = MISS;
     gs.myTurn = false;
     sendMove(row, col);
-    delay(100);
+    delay(200);
     sendStateUpdate();
-    delay(100);
+    delay(200);
     drawDefendScreen();
 }
 
 void applyEnemyShot(int row, int col) {
     Serial.printf("[GAME] Enemy fires at (%d,%d)\n", row, col);
-    if (gs.myGrid[row][col] == SHIP) {
+
+    bool wasHit = (gs.myGrid[row][col] == SHIP);
+    if (wasHit) {
         gs.myGrid[row][col] = HIT;
         gs.myShipsLeft--;
+        setFan(false);
         Serial.printf("[GAME] HIT on my fleet! Left: %d\n", gs.myShipsLeft);
     } else {
         gs.myGrid[row][col] = MISS;
+        // Spin fan if miss was within 3 cells of an M5 ship
+        int dist = nearestShipDistance(row, col);
+        Serial.printf("[FAN] Miss dist=%d\n", dist);
+        if (dist <= 3) {
+            setFan(true);
+            delay(1500);
+            setFan(false);
+        }
     }
+
     drawCell(row, col, gs.myGrid[row][col], true);
     drawStatusBar();
 
     if (gs.myShipsLeft <= 0) {
         gs.phase = OVER;
         gs.iWon  = false;
+        scoreLosses++;
+        setFan(false);
         sendStateUpdate();
-        delay(800);
+        delay(300);
+        postMatchResult();
         drawGameOverScreen();
         return;
     }
@@ -582,26 +778,4 @@ void sendStateUpdate() {
     stateChar->setValue(buf);
     stateChar->notify();
     Serial.printf("[BLE] State sent: %s\n", buf);
-}
-
-void drawGameOverScreen() {
-    M5.Lcd.fillScreen(COL_BG);
-    if (gs.iWon) {
-        drawBanner("         GAME OVER         ", COL_GREEN, COL_BG);
-        M5.Lcd.setTextSize(3);
-        M5.Lcd.setTextColor(COL_GREEN);
-        M5.Lcd.setCursor(74, 90);
-        M5.Lcd.print("WINNER");
-    } else {
-        drawBanner("         GAME OVER         ", COL_RED_BAN, COL_WHITE);
-        M5.Lcd.setTextSize(3);
-        M5.Lcd.setTextColor(COL_HIT);
-        M5.Lcd.setCursor(54, 90);
-        M5.Lcd.print("DEFEATED");
-    }
-    M5.Lcd.setTextSize(1);
-    M5.Lcd.setTextColor(COL_SUBTEXT);
-    M5.Lcd.setCursor(88, 165);
-    M5.Lcd.print("Press reset to replay");
-    while (true) { delay(1000); }
 }

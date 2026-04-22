@@ -33,10 +33,10 @@ class BattleshipApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF000820),
-        colorScheme: ColorScheme.dark(
-          primary:   const Color(0xFF00C844),
-          secondary: const Color(0xFF8AB0C0),
-          surface:   const Color(0xFF0A3A4A),
+        colorScheme: const ColorScheme.dark(
+          primary:   Color(0xFF00C844),
+          secondary: Color(0xFF8AB0C0),
+          surface:   Color(0xFF0A3A4A),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
